@@ -1,22 +1,104 @@
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden !important;
+}
+
+body {
+  background: #f6f6f3 !important;
+}
+
+.app-shell {
+  width: min(100% - 24px, 880px) !important;
+  min-height: 100vh !important;
+  padding: 16px 0 28px !important;
+  gap: 14px !important;
+}
+
 .topbar-pills,
 .rules-card,
-.trust-strip {
+.trust-strip,
+.hero-copy,
+.eyebrow {
   display: none !important;
 }
 
 .topbar {
-  width: fit-content;
-  margin: 0 auto;
+  width: fit-content !important;
+  max-width: 100% !important;
+  margin: 0 auto !important;
   border-radius: 999px !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .06) !important;
 }
 
 .brand small {
   display: none !important;
 }
 
-.hero-copy-block,
+.hero-layout {
+  display: block !important;
+  width: 100% !important;
+}
+
+.hero-copy-block {
+  min-height: auto !important;
+  margin-bottom: 14px !important;
+  padding: 28px !important;
+  border-radius: 34px !important;
+  text-align: left !important;
+}
+
+.hero-copy-block h1,
+h1 {
+  max-width: 100% !important;
+  font-size: clamp(2.8rem, 12vw, 5.4rem) !important;
+  line-height: .88 !important;
+  letter-spacing: -.085em !important;
+}
+
 .control-card {
-  border-radius: 38px !important;
+  width: 100% !important;
+  min-height: auto !important;
+  padding: 10px !important;
+  border-radius: 34px !important;
+}
+
+.start-panel,
+.room-panel {
+  min-height: auto !important;
+  border-radius: 28px !important;
+  padding: clamp(18px, 4vw, 28px) !important;
+}
+
+.start-panel h2,
+.state-card h2 {
+  font-size: clamp(2rem, 8vw, 3.7rem) !important;
+  line-height: .92 !important;
+  letter-spacing: -.07em !important;
+}
+
+.alert {
+  border-radius: 22px !important;
+  margin-bottom: 10px !important;
+}
+
+.alert.error {
+  font-size: 0 !important;
+}
+
+.alert.error::before {
+  content: "No pudimos completar la acción. Inténtalo otra vez.";
+  font-size: .98rem !important;
+}
+
+.join-row,
+.share-box,
+.status-grid,
+.images-grid {
+  width: 100% !important;
+  min-width: 0 !important;
 }
 
 .primary-button,
@@ -25,4 +107,63 @@
 .ghost-button,
 .join-row input {
   border-radius: 999px !important;
+}
+
+.share-box span {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.status-grid,
+.images-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.upload-dropzone {
+  min-height: 150px !important;
+}
+
+.room-footer {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    width: min(100% - 16px, 880px) !important;
+    padding-top: 10px !important;
+  }
+
+  .topbar {
+    width: 100% !important;
+    justify-content: flex-start !important;
+  }
+
+  .hero-copy-block {
+    padding: 22px !important;
+    border-radius: 28px !important;
+  }
+
+  .control-card {
+    border-radius: 28px !important;
+    padding: 8px !important;
+  }
+
+  .room-topbar,
+  .share-box,
+  .join-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .status-grid,
+  .images-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .share-box span {
+    white-space: normal !important;
+    word-break: break-all !important;
+  }
 }
