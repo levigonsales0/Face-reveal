@@ -1,5 +1,5 @@
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { supabase } from './lib/supabase';
+import { hasSupabaseConfig, supabase } from './lib/supabase';
 
 const BUCKET_NAME = 'face-reveals';
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -143,6 +143,53 @@ function getStateCopy(roomState: RoomState) {
 }
 
 export default function App() {
+  if (!hasSupabaseConfig || !supabase) return <MissingSupabaseConfig />;
+  return <RevealApp />;
+}
+
+function MissingSupabaseConfig() {
+  return (
+    <main className="app-shell">
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
+      <section className="hero-layout">
+        <div className="hero-copy-block">
+          <div className="eyebrow">Vercel setup needed</div>
+          <h1>Missing Supabase env.</h1>
+          <p className="hero-copy">
+            The app loaded, but Vercel does not have the Supabase variables yet. Add them, redeploy, and the reveal room will start working.
+          </p>
+          <div className="trust-strip">
+            <MiniStat value="01" label="Vercel settings" />
+            <MiniStat value="02" label="Environment variables" />
+            <MiniStat value="03" label="Redeploy" />
+          </div>
+        </div>
+        <div className="control-card">
+          <div className="start-panel">
+            <div>
+              <p className="panel-kicker">Required variables</p>
+              <h2>Add these in Vercel.</h2>
+              <p>Project → Settings → Environment Variables</p>
+            </div>
+            <div className="join-box">
+              <label>Variables</label>
+              <p><strong>VITE_SUPABASE_URL</strong></p>
+              <p><strong>VITE_SUPABASE_ANON_KEY</strong></p>
+            </div>
+            <div className="locked-box">
+              <span aria-hidden="true">●</span>
+              Do not use the service_role key. Use the anon public key only.
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function RevealApp() {
+  const client = supabase!;
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -188,7 +235,7 @@ export default function App() {
 
     if (signedKeyRef.current === nextKey && signedImages.length > 0) return;
 
-    const { data, error } = await supabase.storage
+    const { data, error } = await client.storage
       .from(BUCKET_NAME)
       .createSignedUrls(paths, 60 * 10);
 
@@ -197,15 +244,15 @@ export default function App() {
     signedKeyRef.current = nextKey;
     setSignedImages(
       (data ?? [])
-        .filter((item): item is { path: string; signedUrl: string } => Boolean(item.signedUrl && item.path))
-        .map((item) => ({ path: item.path, url: item.signedUrl })),
+        .filter((item) => Boolean(item.signedUrl && item.path))
+        .map((item) => ({ path: String(item.path), url: String(item.signedUrl) })),
     );
-  }, [signedImages.length]);
+  }, [client, signedImages.length]);
 
   const loadRoom = useCallback(async (nextRoomId = roomId) => {
     if (!nextRoomId) return;
 
-    const { data, error } = await supabase.rpc('get_face_reveal_room_state', {
+    const { data, error } = await client.rpc('get_face_reveal_room_state', {
       p_room_id: nextRoomId,
     });
 
@@ -214,13 +261,12 @@ export default function App() {
     const normalized = normalizeRoomState(data);
     setRoomState(normalized);
 
-    if (normalized.isRevealed) {
-      await loadSignedImages(normalized.imagePaths);
-    } else {
+    if (normalized.isRevealed) await loadSignedImages(normalized.imagePaths);
+    else {
       signedKeyRef.current = '';
       setSignedImages([]);
     }
-  }, [loadSignedImages, roomId]);
+  }, [client, loadSignedImages, roomId]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -233,7 +279,7 @@ export default function App() {
 
     async function ensureAnonymousSession() {
       try {
-        const sessionResult = await supabase.auth.getSession();
+        const sessionResult = await client.auth.getSession();
         const sessionUser = sessionResult.data.session?.user;
 
         if (sessionUser) {
@@ -243,7 +289,7 @@ export default function App() {
           return;
         }
 
-        const { data, error } = await supabase.auth.signInAnonymously();
+        const { data, error } = await client.auth.signInAnonymously();
         if (error) throw error;
 
         if (!alive) return;
@@ -251,9 +297,7 @@ export default function App() {
         setAuthReady(true);
       } catch (error) {
         if (!alive) return;
-        setErrorMessage(
-          `${getFriendlyError(error)} Make sure Anonymous sign-ins are enabled in Supabase Auth.`,
-        );
+        setErrorMessage(`${getFriendlyError(error)} Make sure Anonymous sign-ins are enabled in Supabase Auth.`);
         setAuthReady(true);
       }
     }
@@ -263,7 +307,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [client]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -299,7 +343,7 @@ export default function App() {
     setNotice('');
 
     try {
-      const { data, error } = await supabase.rpc('join_face_reveal_room', {
+      const { data, error } = await client.rpc('join_face_reveal_room', {
         p_join_code: cleanCode,
       });
 
@@ -314,7 +358,7 @@ export default function App() {
     } finally {
       setIsJoining(false);
     }
-  }, [loadRoom]);
+  }, [client, loadRoom]);
 
   useEffect(() => {
     if (!authReady || roomId || autoJoinTried.current || !joinCodeInput) return;
@@ -328,7 +372,7 @@ export default function App() {
     setNotice('');
 
     try {
-      const { data, error } = await supabase.rpc('create_face_reveal_room');
+      const { data, error } = await client.rpc('create_face_reveal_room');
       if (error) throw error;
 
       const created = Array.isArray(data) ? data[0] : data;
@@ -370,7 +414,7 @@ export default function App() {
       const ext = safeFileExtension(file);
       const path = `${roomId}/${userId}/${crypto.randomUUID()}.${ext}`;
 
-      const { error: uploadError } = await supabase.storage.from(BUCKET_NAME).upload(path, file, {
+      const { error: uploadError } = await client.storage.from(BUCKET_NAME).upload(path, file, {
         cacheControl: '3600',
         contentType: file.type,
         upsert: false,
@@ -378,7 +422,7 @@ export default function App() {
 
       if (uploadError) throw uploadError;
 
-      const { error: completeError } = await supabase.rpc('complete_face_upload', {
+      const { error: completeError } = await client.rpc('complete_face_upload', {
         p_room_id: roomId,
         p_image_path: path,
       });
@@ -413,7 +457,7 @@ export default function App() {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setNotice('Link copied. Send it to the other person.');
-    } catch (error) {
+    } catch {
       setErrorMessage(`Could not copy automatically. Copy this link manually: ${shareUrl}`);
     }
   }
