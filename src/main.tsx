@@ -1,7 +1,11 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-import './polish.css';
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 function showFatalError(error: unknown) {
   console.error('FACE_REVEAL_FATAL:', error);
@@ -16,7 +20,7 @@ function showFatalError(error: unknown) {
       <section class="boot-card">
         <span class="boot-pill">Runtime error</span>
         <h1>App failed to load.</h1>
-        <p>${message.replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</p>
+        <p>${escapeHtml(message)}</p>
         <p>Open DevTools → Console and look for FACE_REVEAL_FATAL.</p>
       </section>
     </main>
@@ -26,15 +30,29 @@ function showFatalError(error: unknown) {
 window.addEventListener('error', (event) => showFatalError(event.error || event.message));
 window.addEventListener('unhandledrejection', (event) => showFatalError(event.reason));
 
-try {
-  const rootElement = document.getElementById('root');
-  if (!rootElement) throw new Error('Root element was not found.');
+async function boot() {
+  try {
+    const rootElement = document.getElementById('root');
+    if (!rootElement) throw new Error('Root element was not found.');
 
-  ReactDOM.createRoot(rootElement).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
-  );
-} catch (error) {
-  showFatalError(error);
+    await import('./polish.css');
+
+    const [{ default: React }, ReactDOM, { default: App }] = await Promise.all([
+      import('react'),
+      import('react-dom/client'),
+      import('./App'),
+    ]);
+
+    ReactDOM.createRoot(rootElement).render(
+      React.createElement(
+        React.StrictMode,
+        null,
+        React.createElement(App),
+      ),
+    );
+  } catch (error) {
+    showFatalError(error);
+  }
 }
+
+void boot();
