@@ -1,0 +1,28 @@
+.topbar-pills,
+.rules-card,
+.trust-strip {
+  display: none !important;
+}
+
+.topbar {
+  width: fit-content;
+  margin: 0 auto;
+  border-radius: 999px !important;
+}
+
+.brand small {
+  display: none !important;
+}
+
+.hero-copy-block,
+.control-card {
+  border-radius: 38px !important;
+}
+
+.primary-button,
+.join-row button,
+.share-box button,
+.ghost-button,
+.join-row input {
+  border-radius: 999px !important;
+}
