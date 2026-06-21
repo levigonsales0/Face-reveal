@@ -54,8 +54,31 @@ function normalizeRoomState(raw: unknown): RoomState {
 }
 
 function getFriendlyError(error: unknown) {
+  console.error('FACE_REVEAL_ERROR:', error);
+
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
+
+  if (error && typeof error === 'object') {
+    const err = error as {
+      message?: string;
+      details?: string;
+      hint?: string;
+      code?: string;
+      error_description?: string;
+      statusText?: string;
+    };
+
+    return [
+      err.message || err.error_description || err.statusText || 'Something went wrong.',
+      err.details,
+      err.hint,
+      err.code ? `Code: ${err.code}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
   return 'Something went wrong.';
 }
 
@@ -64,6 +87,59 @@ function safeFileExtension(file: File) {
   const fromType = file.type.split('/').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '');
   const ext = fromName || fromType || 'jpg';
   return ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) ? ext : 'jpg';
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getRoomProgress(roomState: RoomState | null) {
+  if (!roomState) return 0;
+  const joined = roomState.participants.length;
+  const uploaded = roomState.participants.filter((participant) => participant.uploaded).length;
+  if (roomState.isRevealed) return 100;
+  return Math.min(100, joined * 25 + uploaded * 25);
+}
+
+function getStateCopy(roomState: RoomState) {
+  if (roomState.status === 'expired') {
+    return {
+      label: 'Expired',
+      title: 'This room expired.',
+      body: 'Create a fresh room and send the new link.',
+    };
+  }
+
+  if (roomState.isRevealed) {
+    return {
+      label: 'Unlocked',
+      title: 'Both images are revealed.',
+      body: 'Both people uploaded, so the reveal opened at the same time.',
+    };
+  }
+
+  if (!roomState.bothJoined) {
+    return {
+      label: 'Waiting',
+      title: 'Send the link to the other person.',
+      body: 'The room stays locked until a second person joins and uploads.',
+    };
+  }
+
+  if (roomState.myUploaded) {
+    return {
+      label: 'Locked',
+      title: 'Your image is locked in.',
+      body: 'Now wait for the other person. They still cannot see your image.',
+    };
+  }
+
+  return {
+    label: 'Ready',
+    title: 'Both are inside. Upload yours.',
+    body: 'After the second image is locked, the reveal opens for both people.',
+  };
 }
 
 export default function App() {
@@ -98,6 +174,9 @@ export default function App() {
       day: 'numeric',
     }).format(new Date(roomState.expiresAt));
   }, [roomState?.expiresAt]);
+
+  const progress = useMemo(() => getRoomProgress(roomState), [roomState]);
+  const stateCopy = roomState ? getStateCopy(roomState) : null;
 
   const loadSignedImages = useCallback(async (paths: string[]) => {
     const nextKey = paths.join('|');
@@ -279,7 +358,7 @@ export default function App() {
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      setErrorMessage('The image must be 5MB or smaller.');
+      setErrorMessage(`The image must be 5MB or smaller. This file is ${formatFileSize(file.size)}.`);
       return;
     }
 
@@ -330,8 +409,13 @@ export default function App() {
 
   async function copyShareLink() {
     if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
-    setNotice('Link copied. Send it to the other person.');
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setNotice('Link copied. Send it to the other person.');
+    } catch (error) {
+      setErrorMessage(`Could not copy automatically. Copy this link manually: ${shareUrl}`);
+    }
   }
 
   function resetLocalRoom() {
@@ -346,132 +430,195 @@ export default function App() {
 
   const me = roomState?.participants.find((participant) => participant.isMe);
   const other = roomState?.participants.find((participant) => !participant.isMe);
+  const canUpload = roomState && !roomState.isRevealed && roomState.status !== 'expired' && !roomState.myUploaded;
 
   return (
     <main className="app-shell">
-      <section className="hero-card">
-        <div className="eyebrow">private mutual reveal</div>
-        <h1>Both upload. Both reveal.</h1>
-        <p className="hero-copy">
-          A tiny room where nobody sees the other image until both people have locked one in.
-        </p>
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
 
-        {!authReady && <div className="soft-alert">Preparing anonymous session...</div>}
-        {errorMessage && <div className="error-alert">{errorMessage}</div>}
-        {notice && <div className="success-alert">{notice}</div>}
+      <header className="topbar">
+        <a className="brand" href="/" aria-label="Face Reveal home">
+          <span className="brand-mark">FR</span>
+          <span>
+            <strong>Face Reveal</strong>
+            <small>Mutual room</small>
+          </span>
+        </a>
 
-        {!roomState && (
-          <div className="start-grid">
-            <button className="primary-button" disabled={!authReady || isCreating} onClick={createRoom}>
-              {isCreating ? 'Creating...' : 'Create reveal room'}
-            </button>
+        <div className="topbar-pills" aria-label="Safety notes">
+          <span>Private bucket</span>
+          <span>2 people</span>
+          <span>24h room</span>
+        </div>
+      </header>
 
-            <div className="join-box">
-              <label htmlFor="join-code">Have a code?</label>
-              <div className="join-row">
-                <input
-                  id="join-code"
-                  value={joinCodeInput}
-                  onChange={(event) => setJoinCodeInput(event.target.value.toUpperCase())}
-                  placeholder="AB12CD34"
-                  maxLength={12}
-                />
-                <button disabled={!authReady || isJoining} onClick={() => joinRoom(joinCodeInput)}>
-                  {isJoining ? 'Joining...' : 'Join'}
-                </button>
-              </div>
-            </div>
+      <section className="hero-layout">
+        <div className="hero-copy-block">
+          <div className="eyebrow">Private mutual reveal</div>
+          <h1>Locked until both upload.</h1>
+          <p className="hero-copy">
+            A clean reveal room where nobody sees the other image first. Both people lock one in, then both images open at the same time.
+          </p>
+
+          <div className="trust-strip">
+            <MiniStat value="01" label="Create a room" />
+            <MiniStat value="02" label="Share the link" />
+            <MiniStat value="03" label="Both reveal" />
           </div>
-        )}
+        </div>
 
-        {roomState && (
-          <div className="room-panel">
-            <div className="room-topbar">
+        <div className="control-card">
+          {!authReady && <Alert tone="soft" message="Preparing anonymous session..." />}
+          {errorMessage && <Alert tone="error" message={errorMessage} />}
+          {notice && <Alert tone="success" message={notice} />}
+
+          {!roomState && (
+            <div className="start-panel">
               <div>
-                <span className="muted-label">Room code</span>
-                <strong>{roomState.joinCode}</strong>
+                <p className="panel-kicker">Start</p>
+                <h2>Create a locked room.</h2>
+                <p>Send one private link. The reveal only unlocks after both uploads are completed.</p>
               </div>
-              <button className="ghost-button" onClick={resetLocalRoom}>Leave</button>
-            </div>
 
-            <div className="share-box">
-              <span>{shareUrl}</span>
-              <button onClick={copyShareLink}>Copy link</button>
-            </div>
+              <button className="primary-button" disabled={!authReady || isCreating} onClick={createRoom}>
+                <span>{isCreating ? 'Creating room...' : 'Create reveal room'}</span>
+                <span aria-hidden="true">↗</span>
+              </button>
 
-            <div className="status-grid">
-              <StatusCard title="You" uploaded={Boolean(me?.uploaded)} active />
-              <StatusCard title="Other person" uploaded={Boolean(other?.uploaded)} />
-            </div>
-
-            <div className={`reveal-state ${roomState.isRevealed ? 'revealed' : ''}`}>
-              {roomState.status === 'expired'
-                ? 'This room has expired.'
-                : roomState.isRevealed
-                  ? 'Unlocked. Both images were uploaded.'
-                  : roomState.bothJoined
-                    ? 'Waiting for both uploads.'
-                    : 'Waiting for the other person to join.'}
-            </div>
-
-            {!roomState.isRevealed && roomState.status !== 'expired' && !roomState.myUploaded && (
-              <label
-                className={`upload-dropzone ${dragActive ? 'drag-active' : ''}`}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={handleDrop}
-              >
-                <input type="file" accept="image/*" onChange={handleFileInput} disabled={isUploading} />
-                <span>{isUploading ? 'Locking image...' : 'Drop an image or click to upload'}</span>
-                <small>Max 5MB. Private until both people upload.</small>
-              </label>
-            )}
-
-            {!roomState.isRevealed && roomState.myUploaded && (
-              <div className="locked-box">
-                Your image is locked. Now the other person has to upload.
+              <div className="join-box">
+                <label htmlFor="join-code">Have a code?</label>
+                <div className="join-row">
+                  <input
+                    id="join-code"
+                    value={joinCodeInput}
+                    onChange={(event) => setJoinCodeInput(event.target.value.toUpperCase())}
+                    placeholder="AB12CD34"
+                    maxLength={12}
+                  />
+                  <button disabled={!authReady || isJoining} onClick={() => joinRoom(joinCodeInput)}>
+                    {isJoining ? 'Joining...' : 'Join'}
+                  </button>
+                </div>
               </div>
-            )}
-
-            {roomState.isRevealed && (
-              <div className="images-grid">
-                {signedImages.map((image, index) => (
-                  <figure key={image.path}>
-                    <img src={image.url} alt={`Reveal ${index + 1}`} />
-                    <figcaption>{index === 0 ? 'Reveal image' : 'Reveal image'}</figcaption>
-                  </figure>
-                ))}
-              </div>
-            )}
-
-            <div className="room-footer">
-              <span>Expires: {expiresLabel || 'soon'}</span>
-              <span>{roomState.mySlot === 'a' ? 'Creator slot' : 'Guest slot'}</span>
             </div>
-          </div>
-        )}
+          )}
+
+          {roomState && stateCopy && (
+            <div className="room-panel">
+              <div className="room-topbar">
+                <div>
+                  <span className="muted-label">Room code</span>
+                  <strong>{roomState.joinCode}</strong>
+                </div>
+                <button className="ghost-button" onClick={resetLocalRoom}>Leave</button>
+              </div>
+
+              <div className="progress-wrap" aria-label="Room progress">
+                <div className="progress-meta">
+                  <span>{stateCopy.label}</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+
+              <div className={`state-card ${roomState.isRevealed ? 'is-revealed' : ''} ${roomState.status === 'expired' ? 'is-expired' : ''}`}>
+                <span>{stateCopy.label}</span>
+                <h2>{stateCopy.title}</h2>
+                <p>{stateCopy.body}</p>
+              </div>
+
+              <div className="share-box">
+                <span>{shareUrl}</span>
+                <button onClick={copyShareLink}>Copy link</button>
+              </div>
+
+              <div className="status-grid">
+                <StatusCard title="You" slot={roomState.mySlot.toUpperCase()} uploaded={Boolean(me?.uploaded)} active />
+                <StatusCard title="Other person" slot={other?.slot ? other.slot.toUpperCase() : '?'} uploaded={Boolean(other?.uploaded)} />
+              </div>
+
+              {canUpload && (
+                <label
+                  className={`upload-dropzone ${dragActive ? 'drag-active' : ''}`}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={handleDrop}
+                >
+                  <input type="file" accept="image/*" onChange={handleFileInput} disabled={isUploading} />
+                  <span className="upload-icon" aria-hidden="true">+</span>
+                  <strong>{isUploading ? 'Locking image...' : 'Drop or choose image'}</strong>
+                  <small>Max 5MB. Private until both people upload.</small>
+                </label>
+              )}
+
+              {!roomState.isRevealed && roomState.myUploaded && (
+                <div className="locked-box">
+                  <span aria-hidden="true">●</span>
+                  Your image is locked. The other person still cannot see it.
+                </div>
+              )}
+
+              {roomState.isRevealed && (
+                <div className="images-grid">
+                  {signedImages.map((image, index) => (
+                    <figure key={image.path}>
+                      <img src={image.url} alt={`Reveal ${index + 1}`} />
+                      <figcaption>Reveal {index + 1}</figcaption>
+                    </figure>
+                  ))}
+                </div>
+              )}
+
+              <div className="room-footer">
+                <span>Expires: {expiresLabel || 'soon'}</span>
+                <span>{roomState.mySlot === 'a' ? 'Creator slot' : 'Guest slot'}</span>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="rules-card">
-        <h2>Rules</h2>
+        <div>
+          <p className="panel-kicker">Rules</p>
+          <h2>Keep it normal and consensual.</h2>
+        </div>
         <p>
-          Use this only for normal, consensual images. Do not upload intimate images, private photos of
-          someone else, harassment content, or anything you would not want stored even temporarily.
+          Use this only for normal images you are allowed to share. Do not upload intimate images, harassment, private photos of someone else, or anything you would not want stored even temporarily.
         </p>
       </section>
     </main>
   );
 }
 
-function StatusCard({ title, uploaded, active = false }: { title: string; uploaded: boolean; active?: boolean }) {
+function Alert({ tone, message }: { tone: 'soft' | 'error' | 'success'; message: string }) {
+  return <div className={`alert ${tone}`}>{message}</div>;
+}
+
+function MiniStat({ value, label }: { value: string; label: string }) {
   return (
-    <div className={`status-card ${active ? 'active' : ''}`}>
-      <div className="status-dot" aria-hidden="true" />
+    <div className="mini-stat">
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function StatusCard({ title, slot, uploaded, active = false }: { title: string; slot: string; uploaded: boolean; active?: boolean }) {
+  return (
+    <div className={`status-card ${active ? 'active' : ''} ${uploaded ? 'uploaded' : ''}`}>
+      <div className="status-card-top">
+        <span className="status-dot" aria-hidden="true" />
+        <span className="slot-pill">Slot {slot}</span>
+      </div>
       <h3>{title}</h3>
-      <p>{uploaded ? 'Image locked' : 'Pending'}</p>
+      <p>{uploaded ? 'Image locked' : 'Pending upload'}</p>
     </div>
   );
 }
