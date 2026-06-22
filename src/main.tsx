@@ -7,6 +7,15 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
+function speedUpRoomPolling() {
+  const originalSetInterval = window.setInterval.bind(window);
+
+  window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    const nextTimeout = timeout === 2500 ? 500 : timeout;
+    return originalSetInterval(handler, nextTimeout, ...args);
+  }) as typeof window.setInterval;
+}
+
 function showFatalError(error: unknown) {
   console.error('FACE_REVEAL_FATAL:', error);
 
@@ -31,6 +40,8 @@ window.addEventListener('unhandledrejection', (event) => showFatalError(event.re
 
 async function boot() {
   try {
+    speedUpRoomPolling();
+
     const rootElement = document.getElementById('root');
     if (!rootElement) throw new Error('Root element was not found.');
 
